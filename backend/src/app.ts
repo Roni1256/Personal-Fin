@@ -1,8 +1,8 @@
-import { createRequire } from 'node:module';
 import compression from 'compression';
 import cors from 'cors';
 import express, { type RequestHandler } from 'express';
 import { rateLimit } from 'express-rate-limit';
+import helmetModule from 'helmet';
 import type { HelmetOptions } from 'helmet';
 import { connectDatabase } from './config/database.js';
 import { env } from './config/env.js';
@@ -12,7 +12,7 @@ import authRouter from './routes/auth.js';
 import financeRouter from './routes/finance.js';
 import profileRouter from './routes/profile.js';
 
-const helmet = createRequire(import.meta.url)('helmet') as (options?: HelmetOptions) => RequestHandler;
+const helmet = helmetModule as unknown as (options?: HelmetOptions) => RequestHandler;
 const app = express();
 
 app.set('trust proxy', 1);
