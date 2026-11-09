@@ -27,7 +27,10 @@ if (!parsed.success) {
   throw new Error(`Invalid environment configuration: ${parsed.error.message}`);
 }
 
-if (parsed.data.NODE_ENV === 'production') {
+const isVercel = process.env.VERCEL === '1';
+const isProduction = parsed.data.NODE_ENV === 'production' || isVercel;
+
+if (isProduction) {
   const requiredProductionValues = [
     'JWT_ACCESS_SECRET',
     'JWT_REFRESH_SECRET',
@@ -50,8 +53,10 @@ if (parsed.data.NODE_ENV === 'production') {
 
 export const env = {
   ...parsed.data,
-  DEV_OTP_ENABLED: parsed.data.DEV_OTP_ENABLED.toLowerCase() === 'true',
-  CORS_ORIGINS: (parsed.data.CORS_ORIGINS || (parsed.data.NODE_ENV === 'production' ? '' : 'http://localhost:*,http://127.0.0.1:*'))
+  NODE_ENV: isProduction ? 'production' as const : parsed.data.NODE_ENV,
+  IS_HOSTED: isVercel,
+  DEV_OTP_ENABLED: !isVercel && parsed.data.DEV_OTP_ENABLED.toLowerCase() === 'true',
+  CORS_ORIGINS: (parsed.data.CORS_ORIGINS || (isProduction ? '' : 'http://localhost:*,http://127.0.0.1:*'))
     .split(',').map((origin) => origin.trim()).filter(Boolean),
   JWT_ACCESS_SECRET: parsed.data.JWT_ACCESS_SECRET || 'local-development-access-secret-change-me',
   JWT_REFRESH_SECRET: parsed.data.JWT_REFRESH_SECRET || 'local-development-refresh-secret-change-me',

@@ -31,4 +31,12 @@ describe('shouldUseDevOtp', () => {
       TWILIO_VERIFY_SERVICE_SID: '',
     })).toBe(false);
   });
+
+  it('never enables development OTP on Vercel when NODE_ENV is misconfigured', () => {
+    expect(shouldUseDevOtp({
+      NODE_ENV: 'development',
+      DEV_OTP_ENABLED: true,
+      IS_HOSTED: true,
+    })).toBe(false);
+  });
 });

@@ -21,11 +21,12 @@ const refreshSchema = z.object({ refreshToken: z.string().min(40) });
 export function shouldUseDevOtp(envConfig: {
   NODE_ENV?: string;
   DEV_OTP_ENABLED?: boolean;
+  IS_HOSTED?: boolean;
   TWILIO_ACCOUNT_SID?: string;
   TWILIO_AUTH_TOKEN?: string;
   TWILIO_VERIFY_SERVICE_SID?: string;
 } = env): boolean {
-  return envConfig.NODE_ENV !== 'production' && Boolean(envConfig.DEV_OTP_ENABLED);
+  return !envConfig.IS_HOSTED && envConfig.NODE_ENV !== 'production' && Boolean(envConfig.DEV_OTP_ENABLED);
 }
 
 async function sendTwilioVerification(phone: string): Promise<void> {
