@@ -129,6 +129,15 @@ class ApiService {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> signInWithGoogle({required String idToken}) async {
+    final response = await _dio.post(
+      '/auth/google',
+      data: {'idToken': idToken},
+    );
+
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<void> logout({required String accessToken, required String refreshToken}) async {
     await _dio.post<void>(
       '/auth/logout',

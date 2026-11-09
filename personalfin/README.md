@@ -24,6 +24,24 @@ flutter build appbundle --release --dart-define=API_BASE_URL=https://api.example
 
 Android release signing uses `android/key.properties` and a private keystore. That file and keystore are ignored by Git; never commit them. Configure `storeFile`, `storePassword`, `keyAlias`, and `keyPassword` in the local properties file before creating a release build.
 
+## Google Sign-In
+
+Use the Google OAuth **Web application client ID** as `GOOGLE_CLIENT_ID` in the backend environment and as a Flutter build define. The Flutter web client uses it as its client ID; Android uses it as the server client ID so the backend can verify the returned ID token. Configure the separate Android OAuth client with the package name and signing SHA-1 in Google Cloud.
+
+For local web development, use the authorized `localhost:3001` origin and supply the public Web client ID:
+
+```powershell
+flutter run -d chrome --web-hostname localhost --web-port 3001 --dart-define=API_BASE_URL=http://localhost:3000/api/v1 --dart-define=GOOGLE_CLIENT_ID=your-web-client-id.apps.googleusercontent.com
+```
+
+For an Android emulator:
+
+```powershell
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000/api/v1 --dart-define=GOOGLE_CLIENT_ID=your-web-client-id.apps.googleusercontent.com
+```
+
+Include the same define in web and Android release builds. The client ID is public; do not put a Google OAuth client secret in the app.
+
 ## Deploy the API
 
 The repository includes a Render Blueprint at its root. Push the repository to GitHub, then create a Blueprint in Render using that repository. During setup, provide:
