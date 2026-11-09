@@ -4,6 +4,7 @@ import cors from 'cors';
 import express, { type RequestHandler } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import type { HelmetOptions } from 'helmet';
+import { connectDatabase } from './config/database.js';
 import { env } from './config/env.js';
 import { errorHandler, notFound } from './middleware/errors.js';
 import advisorRouter from './routes/advisor.js';
@@ -29,6 +30,15 @@ app.use(rateLimit({
 
 app.get('/health', (_request, response) => {
   response.json({ ok: true, environment: env.NODE_ENV });
+});
+
+app.use(async (_request, _response, next) => {
+  try {
+    await connectDatabase();
+    next();
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.use(env.API_PREFIX, authRouter);
