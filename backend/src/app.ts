@@ -1,8 +1,8 @@
 import compression from 'compression';
 import cors from 'cors';
 import express from 'express';
-import rateLimit from 'express-rate-limit';
-import helmet from 'helmet';
+import { rateLimit } from 'express-rate-limit';
+import { helmet } from 'helmet';
 import { env } from './config/env.js';
 import { errorHandler, notFound } from './middleware/errors.js';
 import advisorRouter from './routes/advisor.js';
