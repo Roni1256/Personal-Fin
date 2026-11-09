@@ -53,7 +53,7 @@ class HomeScreen extends ConsumerWidget {
                               ),
                             ),
                             Text(
-                              'October 2026 Plan Active',
+                              '${DateFormatter.monthYear(DateTime.now())} Plan Active',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Theme.of(context).colorScheme.onSurfaceVariant,

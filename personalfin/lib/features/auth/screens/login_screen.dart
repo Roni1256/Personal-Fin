@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/api_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/fin_orb.dart';
 
-class LoginScreen extends StatefulWidget {
+class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _phoneController = TextEditingController();
   bool _consentChecked = true;
+  bool _loading = false;
 
   @override
   void dispose() {
@@ -20,15 +23,38 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _onGetOtp() {
-    final phone = _phoneController.text.trim();
-    if (phone.length < 10) {
+  Future<void> _onGetOtp() async {
+    final rawPhone = _phoneController.text.trim();
+    if (rawPhone.length < 10) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a valid 10-digit mobile number')),
       );
       return;
     }
-    context.push('/otp', extra: phone);
+
+    final phone = '+91$rawPhone';
+    setState(() => _loading = true);
+
+    try {
+      final api = ref.read(apiServiceProvider);
+      final result = await api.requestOtp(phone: phone);
+      final devCode = result['devCode'] as String?;
+      if (!mounted) return;
+      if (devCode != null && devCode.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Dev OTP: $devCode')),
+        );
+      }
+      if (!mounted) return;
+      context.push('/otp', extra: rawPhone);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not send OTP: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -117,20 +143,26 @@ class _LoginScreenState extends State<LoginScreen> {
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: _consentChecked ? _onGetOtp : null,
+                  onPressed: _consentChecked && !_loading ? _onGetOtp : null,
                   style: ElevatedButton.styleFrom(
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(100),
                     ),
                   ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text('Get OTP', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      SizedBox(width: 8),
-                      Icon(Icons.arrow_forward_rounded, size: 18),
-                    ],
-                  ),
+                  child: _loading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text('Get OTP', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            SizedBox(width: 8),
+                            Icon(Icons.arrow_forward_rounded, size: 18),
+                          ],
+                        ),
                 ),
               ),
               const SizedBox(height: 24),

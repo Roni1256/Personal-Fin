@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/fin_orb.dart';
+import '../../../core/providers/auth_provider.dart';
+import '../../../core/services/api_service.dart';
 
 class ChatMessageItem {
   final String id;
@@ -35,8 +38,7 @@ class _AdvisorChatScreenState extends ConsumerState<AdvisorChatScreen> {
     ChatMessageItem(
       id: 'm1',
       role: 'fin',
-      content:
-          'Hi Roni! I’m Fin, your personal AI financial advisor. I’m grounded in your ₹60,000 October plan, your 78/100 health score, and your Moderate risk profile.\n\nAsk me anything like "Can I afford a ₹60k laptop?", "Should I prepay my home loan?", or "Explain my SIP allocation".',
+      content: 'Hi, I’m Fin. Ask me a question about budgeting, saving, or your financial plan.',
       timestamp: DateTime.now().subtract(const Duration(minutes: 5)),
     ),
   ];
@@ -48,8 +50,8 @@ class _AdvisorChatScreenState extends ConsumerState<AdvisorChatScreen> {
     'Explain my investment split',
   ];
 
-  void _sendMessage(String text) {
-    if (text.trim().isEmpty) return;
+  Future<void> _sendMessage(String text) async {
+    if (text.trim().isEmpty || _isFinThinking) return;
 
     final userMsg = ChatMessageItem(
       id: 'u_${DateTime.now().millisecondsSinceEpoch}',
@@ -65,41 +67,53 @@ class _AdvisorChatScreenState extends ConsumerState<AdvisorChatScreen> {
     _textController.clear();
     _scrollToBottom();
 
-    // AI Response simulation grounded in user's profile and plan
-    Future.delayed(const Duration(milliseconds: 1400), () {
-      if (!mounted) return;
-
-      String reply = '';
-      String? assumption;
-
-      if (text.toLowerCase().contains('phone') || text.toLowerCase().contains('laptop') || text.toLowerCase().contains('afford')) {
-        reply =
-            '✦ Affordability Assessment:\n\nBuying a ₹60,000 phone with your monthly income of ₹60,000 requires careful planning. If bought outright, it consumes 100% of one month’s salary and would deplete 65% of your current liquid reserve (₹92k).\n\nRecommendation:\n1. If taking a 6-month No-Cost EMI (₹10,000/mo), your fixed obligations will rise to ₹24,000, bringing your DTI ratio to 40% (exceeding the 35% safe ceiling).\n2. Instead, allocate ₹5,000/month into a short-term Goal over the next 12 months, or wait until your Emergency Fund reaches 4 months.';
-        assumption = 'Assumes no other bonus income; preserves your ₹6,000/mo emergency fund allocation.';
-      } else if (text.toLowerCase().contains('prepay') || text.toLowerCase().contains('loan')) {
-        reply =
-            '✦ Prepay vs Invest Analysis:\n\nYour Home Loan interest rate is approximately 8.65% (tax-deductible under Sec 24b). With a Moderate risk profile, your diversified equity index SIPs target a long-term CAGR of ~11-12%.\n\nMathematical Trade-Off:\n• Over a 10-year horizon, continuing your ₹5,000/mo SIP typically creates a higher net terminal corpus compared to early prepayment.\n• However, if peace of mind from zero debt is your priority, allocating 50% of any annual bonuses towards principal prepayment is the optimal hybrid strategy.';
-        assumption = 'Home loan rate: 8.65% p.a. | Expected Nifty index CAGR: 12% (non-guaranteed).';
-      } else {
-        reply =
-            '✦ Analysis based on your profile:\n\nBased on your ₹60,000 monthly cash flow and Family Balanced plan, your essentials take 36.7%, loan EMI takes 23.3%, and you have an impressive 35% savings rate.\n\nYour top priority this quarter remains building your emergency fund from 2.8 months to the 6.0 months benchmark (₹1,32,000 target). All investments are mapped to SEBI asset-allocation principles.';
-        assumption = 'Based on October 2026 active plan version 1.0.';
+    String reply;
+    try {
+      final accessToken = ref.read(authProvider).accessToken;
+      if (accessToken == null || accessToken.isEmpty) {
+        throw StateError('Sign in to use Fin AI.');
       }
+      final result = await ref.read(apiServiceProvider).sendAdvisorMessage(
+        accessToken: accessToken,
+        messages: _messages.map((message) => {
+          'role': message.role == 'user' ? 'user' : 'model',
+          'content': message.content,
+        }).toList().reversed.take(20).toList().reversed.toList(),
+      );
+      reply = result['reply'] as String? ?? 'Fin returned an empty response. Please try again.';
+    } catch (error) {
+      if (error is DioException) {
+        final responseData = error.response?.data;
+        if (responseData is Map && responseData['detail'] is String) {
+          reply = responseData['detail'] as String;
+        } else {
+          reply = 'Fin could not connect to Gemini. Check your connection and try again.';
+        }
+      } else if (error is StateError) {
+        reply = error.message;
+      } else {
+        reply = 'Fin could not respond right now. Please try again.';
+      }
+    }
 
-      setState(() {
-        _isFinThinking = false;
-        _messages.add(
-          ChatMessageItem(
-            id: 'f_${DateTime.now().millisecondsSinceEpoch}',
-            role: 'fin',
-            content: reply,
-            timestamp: DateTime.now(),
-            assumption: assumption,
-          ),
-        );
-      });
-      _scrollToBottom();
+    if (!mounted) return;
+    setState(() {
+      _isFinThinking = false;
+      _messages.add(ChatMessageItem(
+        id: 'f_${DateTime.now().millisecondsSinceEpoch}',
+        role: 'fin',
+        content: reply,
+        timestamp: DateTime.now(),
+      ));
     });
+    _scrollToBottom();
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   void _scrollToBottom() {
@@ -146,7 +160,7 @@ class _AdvisorChatScreenState extends ConsumerState<AdvisorChatScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               color: isDark ? AppColors.darkCard : AppColors.violet100,
               child: const Text(
-                'PersonalFin provides educational financial planning. Does not guarantee returns. Consult a SEBI-registered advisor for execution.',
+                'Chat context is processed by Google Gemini. For educational planning only; returns are not guaranteed. Consult a SEBI-registered advisor for execution.',
                 style: TextStyle(fontSize: 10, color: AppColors.slate, height: 1.2),
                 textAlign: TextAlign.center,
               ),

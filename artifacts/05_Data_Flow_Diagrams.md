@@ -136,7 +136,7 @@ sequenceDiagram
     participant App as Android App
     participant API as Backend API
     participant OTP as OTP Provider
-    participant DB as PostgreSQL
+    participant DB as MongoDB Atlas
 
     U->>App: Enter phone number
     App->>API: POST /auth/otp/request
@@ -167,7 +167,7 @@ sequenceDiagram
     participant PE as Plan Engine
     participant AI as AI Orchestrator
     participant LLM as LLM
-    participant DB as PostgreSQL
+    participant DB as MongoDB Atlas
 
     U->>App: New Month + enter income
     App->>API: POST /months  (ym, income, events)
@@ -201,7 +201,7 @@ sequenceDiagram
     participant App as Android App
     participant Room as Room DB
     participant API as Transactions API
-    participant DB as PostgreSQL
+    participant DB as MongoDB Atlas
     participant N as Notification Service
     participant FCM as FCM
 
@@ -227,7 +227,7 @@ sequenceDiagram
     actor U as User
     participant App as Android App
     participant AI as AI Orchestrator
-    participant DB as PostgreSQL
+    participant DB as MongoDB Atlas
     participant RAG as Knowledge Base
     participant LLM as LLM
     participant G as Guardrails

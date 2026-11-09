@@ -1,6 +1,8 @@
 # PersonalFin — Database Design & ER Diagram
 
-**Database:** PostgreSQL 16 · **Keys:** UUID (v7) · **Money:** `NUMERIC(14,2)` INR · **Timestamps:** `timestamptz` (UTC) · Soft-delete via `deleted_at` where noted.
+**Database:** MongoDB Atlas · **IDs:** BSON `ObjectId` · **Money:** integer paise (`int64`) · **Timestamps:** BSON `Date` in UTC · Soft-delete via `deletedAt` where noted.
+
+The diagram below is a logical domain-relationship view, not a relational schema. Within the figure, `uuid`/PK/FK labels are shorthand for BSON `ObjectId` `_id` and application-managed ObjectId references; `decimal` amounts map to integer paise (`long`), `jsonb` maps to BSON documents/arrays, and timestamps map to BSON `Date`. Persist field names in camelCase. Embed bounded child data, such as a month's income entries/events and a plan's allocations; keep unbounded transactions, snapshots, messages, and audit events in separate collections. Duplicate `userId` on every user-owned document for tenant-scoped queries. MongoDB does not provide foreign keys or row-level security.
 
 ## 1. ER Diagram
 
@@ -316,51 +318,58 @@ erDiagram
     }
 ```
 
-### Supporting / non-relational tables (not drawn)
-| Table | Purpose |
+### Supporting Collections
+| Collection | Purpose |
 |---|---|
-| `kb_documents` / `kb_chunks` | RAG knowledge base; `chunks.embedding vector(1024)` (pgvector) |
-| `audit_logs` | Immutable log of sensitive reads/writes (actor, action, entity, ip, at) |
-| `otp_requests` | Hashed OTPs, attempts, expiry |
-| `refresh_tokens` | Hashed tokens, rotation chain, revoked_at |
-| `notification_settings` | Per-user toggles & quiet hours |
-| `export_jobs` | DPDP export/erasure requests & status |
+| `knowledgeChunks` | RAG content and embeddings indexed with MongoDB Atlas Vector Search |
+| `auditLogs` | Append-only log of sensitive reads/writes (actor, action, entity, IP, timestamp) |
+| `otpRequests` | Hashed OTPs, attempts, expiry; TTL index removes expired records |
+| `refreshTokens` | Hashed tokens, rotation chain, revocation and expiry |
+| `notificationSettings` | Per-user toggles and quiet hours |
+| `exportJobs` | DPDP export/erasure requests and status |
 
 ## 2. Relationship Summary
-- A **user** has one **profile**, many **snapshots**, **assets**, **liabilities**, **insurance policies**, **goals**.
-- A **user** has one **month** per `YYYY-MM` (unique `(user_id, ym)`).
-- A **month** has many **plan versions** (`month_plans`); exactly one is `approved` and referenced by `months.active_plan_id`.
-- A **plan** has many **allocations**, each optionally tied to a **goal** or **category** (budget line).
-- **Transactions** belong to a user, month and category; actual-vs-planned = `SUM(transactions)` grouped by category vs `plan_allocations`.
+- A **user** has one profile document and many snapshots, assets, liabilities, insurance policies, and goals, all scoped by `userId`.
+- A user has one **month document** per `YYYY-MM`, enforced by a unique compound index on `(userId, ym)`.
+- A month document embeds bounded income entries and calendar events; plan versions are separate documents, with allocations embedded in each plan.
+- A plan allocation may contain `goalId` and `categoryId` ObjectId references. References are checked by domain services, not database foreign keys.
+- Transactions are separate, append/update-oriented documents scoped by user, month, and category. Budget actuals are calculated with aggregation pipelines.
 
 ## 3. Key Indexes & Constraints
 
-```sql
-UNIQUE (user_id, ym) ON months;
-UNIQUE (month_id, version) ON month_plans;
-CHECK (amount >= 0) ON plan_allocations, transactions;
-CHECK (SUM(pct) BETWEEN 99.9 AND 100.1) -- enforced in app/trigger per plan
-INDEX transactions (user_id, txn_date DESC);
-INDEX transactions (month_id, category_id);
-INDEX transactions (client_id) UNIQUE;          -- idempotent sync
-INDEX financial_snapshots (user_id, as_of DESC);
-INDEX notifications (user_id, scheduled_for) WHERE sent_at IS NULL;
-INDEX kb_chunks USING hnsw (embedding vector_cosine_ops);
+Create these indexes during deployment and keep every user-owned query scoped by the authenticated `userId`:
+
+```javascript
+db.months.createIndex({ userId: 1, ym: 1 }, { unique: true });
+db.monthPlans.createIndex({ monthId: 1, version: 1 }, { unique: true });
+db.transactions.createIndex({ userId: 1, txnDate: -1 });
+db.transactions.createIndex({ userId: 1, monthId: 1, categoryId: 1, txnDate: -1 });
+db.transactions.createIndex(
+    { userId: 1, clientId: 1 },
+    { unique: true, partialFilterExpression: { clientId: { $exists: true } } },
+);
+db.financialSnapshots.createIndex({ userId: 1, asOf: -1 });
+db.notifications.createIndex({ userId: 1, scheduledFor: 1, sentAt: 1 });
+db.otpRequests.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 ```
-Row-level security: every user-owned table filtered by `user_id = current_setting('app.user_id')`.
+
+Validate non-negative amounts and plan-total constraints in the domain layer before writes. MongoDB schema validation can enforce document shape and scalar types; cross-document rules require service-level validation and tests.
 
 ## 4. Useful Views / Queries
 
-```sql
--- Budget vs actual for a month
-SELECT c.name, pa.amount AS planned, COALESCE(SUM(t.amount),0) AS spent
-FROM plan_allocations pa
-JOIN month_plans mp ON mp.id = pa.plan_id AND mp.status = 'approved'
-JOIN months m ON m.id = mp.month_id AND m.ym = '2026-10' AND m.user_id = :uid
-LEFT JOIN categories c ON c.id = pa.category_id
-LEFT JOIN transactions t ON t.month_id = m.id AND t.category_id = pa.category_id
-                         AND t.deleted_at IS NULL AND t.type = 'expense'
-GROUP BY c.name, pa.amount;
+```javascript
+// Budget actuals for one authenticated user's month.
+db.transactions.aggregate([
+    {
+        $match: {
+            userId: ObjectId(userId),
+            monthId: ObjectId(monthId),
+            type: "expense",
+            deletedAt: null,
+        },
+    },
+    { $group: { _id: "$categoryId", spentPaise: { $sum: "$amountPaise" } } },
+]);
 ```
 
 ## 5. Seed Data

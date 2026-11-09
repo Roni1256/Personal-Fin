@@ -248,7 +248,7 @@ User or AI picks a base strategy; engine personalises it.
 | Layer | Choice |
 |---|---|
 | Android | Kotlin, Jetpack Compose, MVVM + Clean Architecture, Hilt, Room, Retrofit, WorkManager |
-| Backend | Python FastAPI, PostgreSQL (+ pgvector), Redis, Celery |
+| Backend | Node.js LTS, Express.js + TypeScript, MongoDB Atlas (Vector Search for RAG), optional Redis + BullMQ |
 | AI | Claude API (LLM), RAG over curated knowledge base, deterministic Plan Engine |
 | Auth | Firebase Auth / custom JWT with OTP |
 | Cloud | AWS / GCP (Mumbai region), Docker, CI/CD via GitHub Actions |

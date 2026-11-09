@@ -1,18 +1,18 @@
 # PersonalFin — Backend Architecture
 
 ## 1. Style & Stack
-Modular monolith first (FastAPI), split into services when scale demands. Clean module boundaries below make later extraction easy.
+Start with a modular monolith: one Express API and one worker process, with modules split by domain. Extract services only when traffic or team ownership justifies the operational cost.
 
 | Concern | Technology |
 |---|---|
-| API | Python 3.12, FastAPI, Pydantic v2 |
-| DB | PostgreSQL 16 (+ `pgvector`), SQLAlchemy 2 + Alembic |
-| Cache/Queue | Redis, Celery (or RQ) |
-| AI | Claude API, RAG (pgvector), Plan Engine (pure Python) |
+| API | Node.js LTS, TypeScript, Express 5, Zod request validation |
+| DB | MongoDB Atlas, MongoDB Node.js driver via Mongoose |
+| Cache/Queue | Optional Redis + BullMQ for scheduled and retryable jobs |
+| AI | Claude API, MongoDB Atlas Vector Search for RAG, deterministic TypeScript Plan Engine |
 | Auth | OTP + Google OAuth → JWT (access 15 min / refresh 30 d, rotating) |
 | Storage | S3-compatible (receipts, PDF exports) |
 | Notifications | FCM |
-| Infra | Docker, Kubernetes/ECS, Terraform, GitHub Actions |
+| Infra | Docker, managed Node hosting (e.g. ECS/Cloud Run), Terraform, GitHub Actions |
 | Observability | OpenTelemetry, Prometheus, Grafana, Sentry |
 
 ## 2. Component View
@@ -30,14 +30,15 @@ flowchart LR
     M3 --> PE[Plan Engine]
     M3 --> M6
     M6 --> RAG[RAG Retriever]
+    RAG --> VS[Atlas Vector Search]
     M6 --> LLM[LLM Gateway]
     M6 --> GR[Guardrails]
-    PE --> DB[(PostgreSQL)]
-    M1 & M2 & M4 & M5 & M7 --> DB
-    M1 & M6 --> RC[(Redis)]
-    W[Celery Workers] --> DB
+    PE --> MDB[(MongoDB Atlas collections)]
+    M1 & M2 & M4 & M5 & M7 --> MDB
+    M1 & M6 --> RD[Optional Redis]
+    W[Node Worker - BullMQ] --> MDB
     W --> FCM[FCM]
-    SCH[Scheduler - cron] --> W
+    SCH[Scheduler] --> W
 ```
 
 ## 3. Modules & Responsibilities
@@ -45,15 +46,17 @@ flowchart LR
 | Module | Responsibility |
 |---|---|
 | **auth** | OTP issue/verify, Google login, JWT, device registry, session revocation |
-| **profile** | Onboarding data, snapshots, health score, risk profile |
+| **profile** | Onboarding data, snapshots, health score, risk profile; documents keyed by `userId` |
 | **planner** | Month creation, income entry, plan generation, versions, approval |
 | **plan-engine** | Deterministic allocation: constraints, templates, goal prioritisation, asset-class mapping |
 | **transactions** | Expense CRUD, categories, recurring rules, sync, budget-vs-actual |
 | **goals** | Goals, SIP maths, projections, net worth |
-| **advisor** | Chat orchestration, context building, RAG, LLM calls, guardrails |
-| **reports** | Monthly report card, trends, PDF/CSV export |
+| **advisor** | Chat orchestration, context building, Atlas Vector Search, LLM calls, guardrails |
+| **reports** | Monthly report card, aggregation pipelines, PDF/CSV export |
 | **notifications** | Rules + scheduled reminders, FCM dispatch |
 | **compliance** | Consent log, audit log, data export/erase |
+
+Organize each Express module into routes, controllers, domain services, and repositories. Middleware handles JWT authentication, Zod request validation, rate limits, request IDs, and consistent RFC 7807 errors. Mongoose validates persisted document shapes; keep plan calculations in a pure TypeScript domain module. Repositories must scope user-owned reads and writes by the authenticated `userId`.
 
 ## 4. Plan Engine (Core Algorithm)
 
@@ -129,29 +132,31 @@ flowchart TD
 | Notifications | `GET /notifications` · `PUT /notifications/settings` | Alerts |
 | Privacy | `POST /privacy/export` · `DELETE /privacy/account` | DPDP rights |
 
-**Conventions:** JSON, ISO dates, amounts as integer **paise** or `NUMERIC(14,2)`, idempotency keys for sync/POST, cursor pagination, RFC 7807 errors, rate limits (e.g. 60 req/min/user; chat 20/min).
+**Conventions:** JSON, ISO-8601 dates, amounts as integer **paise** (or BSON `Decimal128` where fractional paise is required), idempotency keys for sync/POST, cursor pagination using stable `(createdAt, _id)` ordering, RFC 7807 errors, rate limits (e.g. 60 req/min/user; chat 20/min).
 
 ## 6. Sync Strategy (Offline-first)
-Client generates UUIDs → queues mutations in Room → WorkManager pushes batches to `/transactions:sync` with `updated_at` + `client_id`; server resolves by *last-write-wins per field* with tombstones for deletes; client pulls deltas via `?since=<cursor>`.
+Client generates UUID `clientId` values → queues mutations locally → pushes batches to `/transactions:sync` with `updatedAt` and `clientId`. A unique MongoDB index on `(userId, clientId)` makes retries idempotent. The server applies the documented last-write-wins policy per field and records deletes as tombstones; clients pull changes with an opaque cursor. Never accept `userId` from a sync payload as authority; derive it from the verified access token.
 
 ## 7. Background Jobs
 
 | Job | Schedule | Action |
 |---|---|---|
-| Recurring txn generator | Daily 00:05 IST | Create due recurring entries |
+| Recurring txn generator | Daily 00:05 IST | BullMQ scheduled job creates due entries idempotently |
 | Due reminders | Daily 08:00 | Push EMI/SIP/bill reminders |
-| Budget breach checker | On txn + hourly | 80% / 100% alerts |
+| Budget breach checker | On transaction write | Recompute affected category and enqueue 80% / 100% alerts |
 | Month-start prompt | 1st of month | "Enter income & get plan" |
 | Month-end report | Last day 20:00 | Build report card |
-| Net-worth snapshot | Monthly | Store snapshot |
-| KB re-index | On KB update | Re-embed docs |
+| Net-worth snapshot | Monthly | Store snapshot document |
+| KB re-index | On KB update | Update Atlas Vector Search embeddings |
+
+For an MVP, scheduled jobs may run from a single worker with a MongoDB-backed lease/lock. Add Redis + BullMQ when retries, throughput, and independent worker scaling justify another service.
 
 ## 8. Security
 - TLS 1.3, HSTS, cert pinning in app; WAF; per-IP & per-user rate limits.
 - Passwords not used; OTP w/ attempt limits & cooldown; refresh-token rotation + reuse detection.
-- Field-level encryption (AES-GCM, KMS-managed keys) for PII/financial identifiers; row-level tenancy checks (`user_id` on every query).
+- Field-level encryption (AES-GCM, KMS-managed keys) for PII/financial identifiers. MongoDB does not provide built-in row-level tenant security: every repository query must include `userId` derived from the verified JWT, with cross-user isolation tests.
 - Secrets in Secrets Manager; least-privilege IAM; dependency & container scanning.
-- Immutable **audit_log**; consent records; PII redaction pipeline before LLM calls.
+- Append-only **audit_logs** collection; consent records; PII redaction pipeline before LLM calls.
 - Backups (PITR), encrypted; data residency in India (Mumbai region).
 - OWASP ASVS / MASVS checklist; periodic pen-test.
 
@@ -162,17 +167,17 @@ flowchart LR
     DEV[Git push] --> CI[GitHub Actions: lint, test, scan, build]
     CI --> REG[Container Registry]
     REG --> STG[Staging]
-    STG -->|approval| PRD[Production K8s/ECS - Mumbai]
-    PRD --> PG[(RDS PostgreSQL Multi-AZ)]
-    PRD --> RD[(ElastiCache Redis)]
-    PRD --> S3[(S3)]
+    STG -->|approval| PRD[Production Express API + Worker - Mumbai]
+    PRD --> MDB[(MongoDB Atlas - Mumbai region)]
+    PRD -. optional .-> RD[(Managed Redis / BullMQ)]
+    PRD --> S3[(Object storage)]
     PRD --> OBS[Prometheus / Grafana / Sentry]
 ```
 
-Environments: `dev`, `staging`, `prod`. Blue/green deploys; DB migrations via Alembic with backward-compatible steps.
+Environments: `dev`, `staging`, `prod`. Deploy the API and worker as versioned containers. Evolve MongoDB documents with versioned, idempotent migration scripts and backward-compatible readers; use Atlas backups and a tested restore procedure for production.
 
 ## 10. Testing Strategy
 Unit (engine rules — property-based tests: sum==income, no negatives) · API contract tests · golden-file tests for plans across personas · LLM eval set (accuracy, guardrails, tone) · load tests (k6) · Android UI tests (Compose) · security tests.
 
 ## 11. Scalability & Cost Notes
-Cache health-score & report calculations in Redis; stream LLM responses (SSE); use smaller model for chat classification/routing, larger for plan explanation; cap tokens per user/day; read replicas when needed.
+Use compound indexes and bounded aggregation pipelines for dashboard/report queries; add caching only for measured hot paths. Stream LLM responses (SSE); use smaller models for chat classification/routing and larger models for plan explanations; cap tokens per user/day. Use Atlas Vector Search for embeddings. Shard only after measured growth requires it; denormalize read-heavy data rather than assuming relational joins.

@@ -4,7 +4,9 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/sparkle_badge.dart';
+import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/finance_provider.dart';
+import '../../../core/services/api_service.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -67,7 +69,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                             ),
                             const SizedBox(width: 8),
-                            const SparkleBadge(text: 'Score: 78'),
+                            SparkleBadge(text: 'Score: ${profile.healthScore}'),
                           ],
                         ),
                         const SizedBox(height: 2),
@@ -127,7 +129,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               title: const Text('Dark Mode (Deep Violet)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
               subtitle: const Text('Aurora deep violet palette', style: TextStyle(fontSize: 12)),
               value: isDark,
-              activeColor: AppColors.violet600,
+              activeThumbColor: AppColors.violet600,
               onChanged: (val) {
                 ref.read(themeModeProvider.notifier).state = val ? ThemeMode.dark : ThemeMode.light;
               },
@@ -137,7 +139,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               title: const Text('Biometric / PIN Lock', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
               subtitle: const Text('Require authentication on app launch', style: TextStyle(fontSize: 12)),
               value: _biometricEnabled,
-              activeColor: AppColors.violet600,
+              activeThumbColor: AppColors.violet600,
               onChanged: (val) => setState(() => _biometricEnabled = val),
             ),
             SwitchListTile(
@@ -145,7 +147,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               title: const Text('Due Reminders & Budget Alerts', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
               subtitle: const Text('Push alerts on EMI dates and 80% budget crossing', style: TextStyle(fontSize: 12)),
               value: _notificationsEnabled,
-              activeColor: AppColors.violet600,
+              activeThumbColor: AppColors.violet600,
               onChanged: (val) => setState(() => _notificationsEnabled = val),
             ),
 
@@ -221,6 +223,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
 
             const SizedBox(height: 24),
+            _buildSettingTile(
+              icon: Icons.logout_rounded,
+              title: 'Sign Out',
+              subtitle: 'Securely end this session on this device',
+              onTap: _signOut,
+            ),
+            const SizedBox(height: 24),
             Center(
               child: Text(
                 'PersonalFin v1.0.0 (Build 1) · Made with Flutter',
@@ -232,6 +241,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _signOut() async {
+    final session = ref.read(authProvider);
+    try {
+      if (session.accessToken != null && session.refreshToken != null) {
+        await ref.read(apiServiceProvider).logout(
+          accessToken: session.accessToken!,
+          refreshToken: session.refreshToken!,
+        );
+      }
+    } catch (_) {
+      // Clear local credentials even if the server is unavailable.
+    }
+    await ref.read(authProvider.notifier).clearSession();
+    if (mounted) context.go('/login');
   }
 
   Widget _buildSettingTile({

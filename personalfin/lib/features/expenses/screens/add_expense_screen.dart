@@ -4,7 +4,9 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/models/app_models.dart';
+import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/finance_provider.dart';
+import '../../../core/services/api_service.dart';
 
 class AddExpenseScreen extends ConsumerStatefulWidget {
   const AddExpenseScreen({super.key});
@@ -18,7 +20,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
   final _titleController = TextEditingController();
   String _selectedCategoryId = 'dining';
   String _paymentMode = 'UPI (GPay)';
-  DateTime _txnDate = DateTime.now();
+  final DateTime _txnDate = DateTime.now();
 
   @override
   void dispose() {
@@ -50,7 +52,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
     });
   }
 
-  void _onSaveExpense() {
+  Future<void> _onSaveExpense() async {
     final amount = double.tryParse(_amountString) ?? 0.0;
     if (amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -60,21 +62,71 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
     }
 
     final cat = CategoryItem.findById(_selectedCategoryId);
-    final txn = TransactionModel(
-      id: 'txn_${DateTime.now().millisecondsSinceEpoch}',
-      title: _titleController.text.trim().isEmpty ? cat.name : _titleController.text.trim(),
-      amount: amount,
-      categoryId: _selectedCategoryId,
-      date: _txnDate,
-      paymentMode: _paymentMode,
-      type: 'expense',
-    );
+    final title = _titleController.text.trim().isEmpty ? cat.name : _titleController.text.trim();
+    final accessToken = ref.read(authProvider).accessToken;
 
-    ref.read(transactionsProvider.notifier).addTransaction(txn);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Logged ${CurrencyFormatter.format(amount)} to ${cat.name}')),
-    );
-    context.pop();
+    try {
+      if (accessToken != null && accessToken.isNotEmpty) {
+        final result = await ref.read(apiServiceProvider).createTransaction(
+          accessToken: accessToken,
+          payload: {
+            'title': title,
+            'amount': amount,
+            'categoryId': _selectedCategoryId,
+            'date': _txnDate.toIso8601String(),
+            'paymentMode': _paymentMode,
+            'type': 'expense',
+            'merchant': cat.name,
+          },
+        );
+
+        final data = result['transaction'] as Map<String, dynamic>? ?? {};
+        final txn = TransactionModel(
+          id: (data['id'] ?? 'txn_${DateTime.now().millisecondsSinceEpoch}').toString(),
+          title: (data['title'] as String?) ?? title,
+          amount: ((data['amount'] as num?) ?? amount).toDouble(),
+          categoryId: (data['categoryId'] as String?) ?? _selectedCategoryId,
+          date: DateTime.tryParse((data['date'] as String?) ?? DateTime.now().toIso8601String()) ?? DateTime.now(),
+          paymentMode: (data['paymentMode'] as String?) ?? _paymentMode,
+          type: (data['type'] as String?) ?? 'expense',
+          merchant: data['merchant'] as String?,
+        );
+        ref.read(transactionsProvider.notifier).addTransaction(txn);
+      } else {
+        final txn = TransactionModel(
+          id: 'txn_${DateTime.now().millisecondsSinceEpoch}',
+          title: title,
+          amount: amount,
+          categoryId: _selectedCategoryId,
+          date: _txnDate,
+          paymentMode: _paymentMode,
+          type: 'expense',
+        );
+        ref.read(transactionsProvider.notifier).addTransaction(txn);
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Logged ${CurrencyFormatter.format(amount)} to ${cat.name}')),
+      );
+      context.pop();
+    } catch (error) {
+      final fallbackTxn = TransactionModel(
+        id: 'txn_${DateTime.now().millisecondsSinceEpoch}',
+        title: title,
+        amount: amount,
+        categoryId: _selectedCategoryId,
+        date: _txnDate,
+        paymentMode: _paymentMode,
+        type: 'expense',
+      );
+      ref.read(transactionsProvider.notifier).addTransaction(fallbackTxn);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Saved locally: ${CurrencyFormatter.format(amount)} ($error)')),
+      );
+      context.pop();
+    }
   }
 
   @override

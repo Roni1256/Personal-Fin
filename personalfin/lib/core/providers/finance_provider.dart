@@ -101,6 +101,28 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
     );
   }
 
+  void applyProfile(Map<String, dynamic> payload) {
+    final name = (payload['name'] as String?) ?? state.name;
+    final monthlyIncome = ((payload['monthlyIncome'] as num?) ?? state.monthlyIncome).toDouble();
+    final riskProfile = (payload['riskProfile'] as String?) ?? state.riskProfile;
+    final occupation = (payload['occupation'] as String?) ?? state.occupation;
+    final age = (payload['age'] as num?)?.toInt() ?? state.age;
+    final cityTier = (payload['cityTier'] as String?) ?? state.cityTier;
+    final healthScore = (payload['healthScore'] as num?)?.toInt() ?? state.healthScore;
+    final netWorth = ((payload['netWorth'] as num?) ?? state.netWorth).toDouble();
+
+    state = state.copyWith(
+      name: name,
+      age: age,
+      cityTier: cityTier,
+      occupation: occupation,
+      riskProfile: riskProfile,
+      monthlyIncome: monthlyIncome,
+      healthScore: healthScore,
+      netWorth: netWorth,
+    );
+  }
+
   void completeOnboarding({
     required String name,
     required int age,
@@ -250,6 +272,33 @@ class MonthlyPlanNotifier extends StateNotifier<MonthlyPlanState> {
             ],
           ),
         );
+
+  void applyPlan(Map<String, dynamic> payload) {
+    final rawAllocations = payload['allocations'] as List<dynamic>? ?? const [];
+    final allocations = rawAllocations.map((item) {
+      final value = item as Map<String, dynamic>;
+      final amount = ((value['amount'] as num?) ?? (value['amountPaise'] as num? ?? 0) / 100).toDouble();
+      final percentage = ((value['percentage'] as num?) ?? 0).toDouble();
+      return PlanAllocation(
+        id: value['id']?.toString() ?? UniqueKey().toString(),
+        bucket: value['bucket']?.toString() ?? 'Misc',
+        label: value['label']?.toString() ?? 'Allocation',
+        amount: amount,
+        percentage: percentage,
+        reason: value['reason']?.toString() ?? 'Budget allocation',
+        color: AppColors.violet600,
+        categoryId: value['categoryId']?.toString(),
+      );
+    }).toList();
+
+    state = MonthlyPlanState(
+      monthYm: payload['monthYm']?.toString() ?? state.monthYm,
+      totalIncome: ((payload['totalIncome'] as num?) ?? state.totalIncome).toDouble(),
+      templateName: payload['templateName']?.toString() ?? state.templateName,
+      allocations: allocations,
+      isApproved: payload['isApproved'] as bool? ?? state.isApproved,
+    );
+  }
 
   void updateAllocationAmount(String id, double newAmount) {
     final oldAllocations = state.allocations;

@@ -23,7 +23,7 @@ flowchart TB
         GW[API Gateway - Rate limit, JWT]
     end
 
-    subgraph Backend["Backend Services (FastAPI, Docker, K8s/ECS)"]
+    subgraph Backend["Backend API (Express.js + TypeScript)"]
         AUTH[Auth Service]
         PROF[Profile & Onboarding Service]
         PLAN[Plan Engine Service]
@@ -36,14 +36,13 @@ flowchart TB
 
     subgraph AI["AI Layer"]
         LLM[LLM API - Claude]
-        RAG[RAG Retriever - pgvector]
-        KB[(Finance Knowledge Base)]
+        RAG[RAG Retriever - MongoDB Atlas Vector Search]
         GUARD[Guardrails & Validator]
     end
 
     subgraph Data["Data Layer"]
-        PG[(PostgreSQL)]
-        RD[(Redis Cache / Queue)]
+        MDB[(MongoDB Atlas collections)]
+        RD[(Optional Redis / BullMQ)]
         S3[(Object Storage - receipts, exports)]
     end
 
@@ -56,11 +55,11 @@ flowchart TB
     Client -->|HTTPS TLS1.3| CDN --> GW
     GW --> AUTH & PROF & PLAN & EXP & GOAL & AIORCH & RPT
     PLAN --> AIORCH
-    AIORCH --> RAG --> KB
+    AIORCH --> RAG --> MDB
     AIORCH --> LLM
     AIORCH --> GUARD
-    AUTH & PROF & PLAN & EXP & GOAL & RPT --> PG
-    AUTH & AIORCH & NOTIF --> RD
+    AUTH & PROF & PLAN & EXP & GOAL & RPT --> MDB
+    AUTH & AIORCH & NOTIF -. optional .-> RD
     EXP --> S3
     NOTIF --> FCM
     AUTH --> OTP
@@ -100,7 +99,7 @@ flowchart LR
 1. LLM never calculates money — **Plan Engine** (deterministic) does; LLM explains.
 2. Everything auditable — plans store inputs, rules version, model version.
 3. Privacy by design — PII minimised/redacted before any LLM call.
-4. Stateless backend services; state in Postgres/Redis.
+4. Stateless Express processes; persistent domain state lives in MongoDB, with Redis optional for queues and cache.
 5. Graceful degradation — if AI is down, rule-based plan still works.
 
 ---

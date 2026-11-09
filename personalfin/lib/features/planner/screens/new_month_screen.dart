@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/sparkle_badge.dart';
 import '../../../core/widgets/fin_orb.dart';
+import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/finance_provider.dart';
+import '../../../core/services/api_service.dart';
 
 class NewMonthScreen extends ConsumerStatefulWidget {
   const NewMonthScreen({super.key});
@@ -53,13 +56,32 @@ class _NewMonthScreenState extends ConsumerState<NewMonthScreen> {
     super.dispose();
   }
 
-  void _onGeneratePlan() {
+  Future<void> _onGeneratePlan() async {
     final base = double.tryParse(_incomeController.text) ?? 60000;
     final extra = double.tryParse(_extraIncomeController.text) ?? 0;
     final total = base + extra;
 
-    ref.read(monthlyPlanProvider.notifier).generateNewPlan(total, _selectedTemplate);
-    context.push('/planner/review');
+    final accessToken = ref.read(authProvider).accessToken;
+    if (accessToken != null && accessToken.isNotEmpty) {
+      try {
+        final result = await ref.read(apiServiceProvider).generatePlan(
+          accessToken: accessToken,
+          payload: {
+            'month': DateFormatter.yearMonth(DateTime.now()),
+            'income': total,
+            'template': _selectedTemplate,
+          },
+        );
+        final planData = result['plan'] as Map<String, dynamic>? ?? {};
+        ref.read(monthlyPlanProvider.notifier).applyPlan(planData);
+      } catch (_) {
+        ref.read(monthlyPlanProvider.notifier).generateNewPlan(total, _selectedTemplate);
+      }
+    } else {
+      ref.read(monthlyPlanProvider.notifier).generateNewPlan(total, _selectedTemplate);
+    }
+
+    if (mounted) context.push('/planner/review');
   }
 
   @override
@@ -97,9 +119,9 @@ class _NewMonthScreenState extends ConsumerState<NewMonthScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Plan for October 2026',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          Text(
+                            'Plan for ${DateFormatter.monthYear(DateTime.now())}',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 2),
                           Text(

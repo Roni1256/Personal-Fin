@@ -51,9 +51,9 @@ class InsightsScreen extends ConsumerWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'OCTOBER 2026 REPORT CARD',
-                        style: TextStyle(
+                      Text(
+                        '${DateFormatter.monthYear(DateTime.now()).toUpperCase()} REPORT CARD',
+                        style: const TextStyle(
                           color: AppColors.lavenderGlow,
                           fontSize: 11,
                           fontWeight: FontWeight.bold,

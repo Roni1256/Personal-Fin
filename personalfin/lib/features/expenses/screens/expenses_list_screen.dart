@@ -15,7 +15,7 @@ class ExpensesListScreen extends ConsumerStatefulWidget {
 
 class _ExpensesListScreenState extends ConsumerState<ExpensesListScreen> {
   String _searchQuery = '';
-  String _selectedFilterCategory = 'All';
+  final String _selectedFilterCategory = 'All';
 
   @override
   Widget build(BuildContext context) {

@@ -187,7 +187,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         const Text('City of Residence', style: TextStyle(fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          value: _cityTier,
+          initialValue: _cityTier,
           decoration: const InputDecoration(),
           items: const [
             DropdownMenuItem(value: 'Tier 1 (Metro)', child: Text('Tier 1 Metro (Mumbai, BLR, Delhi, HYD)')),
@@ -200,7 +200,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         const Text('Employment Type', style: TextStyle(fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          value: _occupation,
+          initialValue: _occupation,
           decoration: const InputDecoration(),
           items: const [
             DropdownMenuItem(value: 'Salaried (Tech)', child: Text('Salaried Full-time')),

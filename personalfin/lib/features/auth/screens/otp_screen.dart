@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/providers/auth_provider.dart';
+import '../../../core/providers/finance_provider.dart';
+import '../../../core/services/api_service.dart';
 
-class OtpScreen extends StatefulWidget {
+class OtpScreen extends ConsumerStatefulWidget {
   final String phoneNumber;
 
   const OtpScreen({super.key, required this.phoneNumber});
 
   @override
-  State<OtpScreen> createState() => _OtpScreenState();
+  ConsumerState<OtpScreen> createState() => _OtpScreenState();
 }
 
-class _OtpScreenState extends State<OtpScreen> {
+class _OtpScreenState extends ConsumerState<OtpScreen> {
   final List<TextEditingController> _controllers = List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
+  bool _loading = false;
 
   @override
   void dispose() {
@@ -25,8 +30,52 @@ class _OtpScreenState extends State<OtpScreen> {
     super.dispose();
   }
 
-  void _onVerify() {
-    context.go('/onboarding');
+  Future<void> _onVerify() async {
+    final code = _controllers.map((controller) => controller.text).join();
+    if (code.length != 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter the full 6-digit code')),
+      );
+      return;
+    }
+
+    final phone = '+91${widget.phoneNumber.trim()}';
+    setState(() => _loading = true);
+
+    try {
+      final result = await ref.read(apiServiceProvider).verifyOtp(phone: phone, code: code);
+      final accessToken = result['accessToken'] as String?;
+      final refreshToken = result['refreshToken'] as String?;
+      final user = result['user'] as Map<String, dynamic>? ?? {};
+      final userId = user['id'] as String? ?? 'local-user';
+      final userName = user['name'] as String? ?? 'User';
+      final userPhone = user['phone'] as String? ?? phone;
+
+      if (accessToken == null || refreshToken == null) {
+        throw Exception('Authentication did not return tokens.');
+      }
+
+      await ref.read(authProvider.notifier).saveSession(
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        userId: userId,
+        userName: userName,
+        phone: userPhone,
+      );
+
+      final profileData = await ref.read(apiServiceProvider).getProfile(accessToken: accessToken);
+      ref.read(profileProvider.notifier).applyProfile(profileData);
+
+      if (!mounted) return;
+      context.go('/onboarding');
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Verification failed: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -94,8 +143,14 @@ class _OtpScreenState extends State<OtpScreen> {
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: _onVerify,
-                  child: const Text('Verify & Continue', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  onPressed: _loading ? null : _onVerify,
+                  child: _loading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Verify & Continue', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 ),
               ),
               const SizedBox(height: 20),
